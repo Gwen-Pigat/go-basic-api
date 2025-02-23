@@ -1,7 +1,7 @@
 # Basic JSON API
 
 ## Description
-Just a besic go project that implements a endpoint that renders a JSON object
+Just a basic go project that implements a endpoint that renders a JSON object
 
 ```bash
 
