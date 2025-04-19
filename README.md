@@ -1,7 +1,7 @@
-# Basic JSON API
+# Chi Basic API
 
 ## Description
-Just a basic go project that implements a endpoint that renders a JSON object
+Just a basic go project that implements chi API
 
 ```bash
 
