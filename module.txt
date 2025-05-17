@@ -1,0 +1,162 @@
+package nameSmall
+
+import (
+	"net/http"
+	"oristack/initializers"
+	"time"
+
+	"github.com/go-chi/chi/v5"
+)
+
+type NameUp struct {
+	ID      int     `json:"id"`
+	Title   string  `json:"title"`
+	DateAdd *string `json:"dateAdd"`
+	DateTo  *string `json:"dateTo"`
+	Content *string `json:"content"`
+	IsDone  bool    `json:"isDone"`
+	RefUser int     `json:"refUser"`
+}
+
+var nameSmallSetup = map[string]string{
+	"payload": "id,date_add,date_to,title,content,is_done,ref_user",
+	"table":   "nameSmall",
+}
+
+func CreateNameUp(wrapper *initializers.Wrapper) {
+	if err := wrapper.WrapData("title"); err != nil {
+		wrapper.Error(err.Error())
+		return
+	}
+	nameSmall := NameUp{
+		Title:   wrapper.Data["title"].(string),
+		IsDone:  false,
+		RefUser: wrapper.ReturnUser(),
+		DateAdd: stringPtr(time.Now().UTC().Truncate(time.Second).Format(initializers.DateFormat)),
+	}
+	smtp, err := initializers.DB.Prepare("INSERT INTO " + nameSmallSetup["table"] + "(title,date_add,is_done,ref_user) VALUES(?,?,?,?)")
+	if err != nil {
+		wrapper.Error(err.Error(), 400)
+		return
+	}
+	defer smtp.Close()
+	_, err = smtp.Exec(nameSmall.Title, nameSmall.DateAdd, nameSmall.IsDone, nameSmall.RefUser)
+	if err != nil {
+		wrapper.Error(err.Error(), 400)
+		return
+	}
+	GetNameUps(wrapper)
+}
+
+func GetNameUps(wrapper *initializers.Wrapper) {
+	rows, err := initializers.DB.Query("SELECT "+nameSmallSetup["payload"]+" FROM "+nameSmallSetup["table"]+" WHERE ref_user=? ORDER BY date_add DESC", wrapper.ReturnUser())
+	if err != nil {
+		wrapper.Error(err.Error(), http.StatusInternalServerError)
+		return
+	}
+	data := []NameUp{}
+	for rows.Next() {
+		var nameSmall NameUp
+		if err := rows.Scan(&nameSmall.ID, &nameSmall.DateAdd, &nameSmall.DateTo, &nameSmall.Title, &nameSmall.Content, &nameSmall.IsDone, &nameSmall.RefUser); err != nil {
+			wrapper.Error(err.Error(), http.StatusBadGateway)
+			return
+		}
+		if nameSmall.DateTo != nil {
+			*nameSmall.DateTo, err = initializers.WrapFormat(nameSmall.DateTo)
+			if err != nil {
+				wrapper.Error("Error parsing dateTp : " + err.Error())
+				return
+			}
+		}
+		*nameSmall.DateAdd, err = initializers.WrapFormat(nameSmall.DateAdd)
+		if err != nil {
+			wrapper.Error("Error parsing dateAdd : " + err.Error())
+			return
+		}
+		data = append(data, nameSmall)
+	}
+	wrapper.Render(map[string]any{
+		"data": data,
+	}, 200)
+}
+
+func GetNameUp(wrapper *initializers.Wrapper) {
+	rows, err := initializers.DB.Query("SELECT "+nameSmallSetup["payload"]+" FROM "+nameSmallSetup["table"]+" WHERE id=? ORDER BY date_add DESC", chi.URLParam(wrapper.Request, "id"))
+	if err != nil {
+		wrapper.Error(err.Error(), http.StatusInternalServerError)
+		return
+	}
+	nameSmall := NameUp{}
+	for rows.Next() {
+		if err := rows.Scan(&nameSmall.ID, &nameSmall.DateAdd, &nameSmall.DateTo, &nameSmall.Title, &nameSmall.Content, &nameSmall.IsDone); err != nil {
+			wrapper.Error(err.Error(), http.StatusBadGateway)
+			return
+		}
+		if nameSmall.DateTo == nil {
+			*nameSmall.DateTo = ""
+		}
+	}
+	wrapper.Render(map[string]any{
+		"nameSmall": nameSmall,
+	}, 200)
+}
+
+func PatchNameUp(wrapper *initializers.Wrapper) {
+	rows, err := initializers.DB.Query("SELECT "+nameSmallSetup["payload"]+" FROM "+nameSmallSetup["table"]+" WHERE id=? ORDER BY date_add DESC", chi.URLParam(wrapper.Request, "id"))
+	if err != nil {
+		wrapper.Error(err.Error(), http.StatusInternalServerError)
+		return
+	}
+	nameSmall := NameUp{}
+	for rows.Next() {
+		if err := rows.Scan(&nameSmall.ID, &nameSmall.DateAdd, &nameSmall.DateTo, &nameSmall.Title, &nameSmall.Content, &nameSmall.IsDone, &nameSmall.RefUser); err != nil {
+			wrapper.Error(err.Error(), http.StatusBadGateway)
+			return
+		}
+	}
+	nameSmall.DateTo = nil
+	if !nameSmall.IsDone {
+		nameSmall.DateTo = stringPtr(time.Now().UTC().Truncate(time.Second).Format(initializers.DateFormat))
+	}
+	nameSmall.IsDone = !nameSmall.IsDone
+	rows, err = initializers.DB.Query(
+		"UPDATE "+nameSmallSetup["table"]+" SET is_done = ?,date_to=? WHERE id=? AND ref_user=?",
+		nameSmall.IsDone, nameSmall.DateTo, chi.URLParam(wrapper.Request, "id"), wrapper.ReturnUser(),
+	)
+	if err != nil {
+		wrapper.Error(err.Error(), http.StatusBadRequest)
+		return
+	}
+	defer rows.Close()
+
+	if nameSmall.DateTo != nil {
+		*nameSmall.DateTo, err = initializers.WrapFormat(nameSmall.DateTo)
+		if err != nil {
+			wrapper.Error("Error parsing dateTo inside PATCH : " + err.Error())
+			return
+		}
+	}
+
+	wrapper.Render(map[string]any{
+		"message": "Update successfull",
+		"result":  nameSmall,
+	})
+}
+
+func DeleteNameUp(wrapper *initializers.Wrapper) {
+	rows, err := initializers.DB.Exec(
+		"DELETE FROM "+nameSmallSetup["table"]+" WHERE id=? AND ref_user=?",
+		chi.URLParam(wrapper.Request, "id"), wrapper.ReturnUser(),
+	)
+	if err != nil {
+		wrapper.Error(err.Error(), http.StatusBadRequest)
+		return
+	}
+	if _, err := rows.RowsAffected(); err != nil {
+		wrapper.Error(err.Error(), http.StatusBadRequest)
+		return
+	}
+	wrapper.Render(map[string]any{
+		"message": "Delete successfull",
+	})
+}
